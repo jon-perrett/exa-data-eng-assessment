@@ -1,0 +1,92 @@
+services:
+  minio:
+    image: minio/minio
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: superSecurePassword
+    volumes:
+      - miniodata:/data
+    command: server /data --console-address ":9001"
+
+  # create-buckets is a service that creates buckets for our application
+  create-buckets:
+    image: minio/mc
+    depends_on:
+      - minio
+    restart: on-failure
+    volumes:
+      - ./scripts:/scripts
+      - ./data:/data
+    environment:
+      MINIO_USER: admin
+      MINIO_PWD: superSecurePassword
+      RAW_BUCKET: raw-data
+      TRANSFORMED_BUCKET: transformed-data
+      DATA_LOCATION: /data
+    entrypoint: /scripts/create-buckets.sh
+  
+  # transform-server receives MinIO webhooks and transforms the data
+  transform-server:
+    build:
+      context: ./transform_server
+    healthcheck:
+      test: ["CMD", "curl", "http://transform-server:8000/health"]
+      interval: 1s
+    environment:
+      TRANSFORMED_BUCKET: transformed-data
+      MINIO_ENDPOINT: minio:9000
+      MINIO_USER: admin
+      MINIO_PWD: superSecurePassword
+    ports:
+      - 8000:8000
+  
+  # configure-webhooks configures MinIO object notification webhooks
+  configure-webhooks:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_started
+      create-buckets:
+        condition: service_completed_successfully
+      transform-server:
+        condition: service_healthy
+    restart: on-failure
+    volumes:
+      - ./scripts:/scripts
+    environment:
+      MINIO_USER: admin
+      MINIO_PWD: superSecurePassword
+      RAW_BUCKET: raw-data
+      WEBHOOK_SERVER: transform-server:8000
+    entrypoint: /scripts/configure-webhooks.sh
+
+
+  # upload-data is a service that creates buckets for our application
+  upload-data:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_started
+      create-buckets:
+        condition: service_completed_successfully
+      transform-server:
+        condition: service_healthy
+      configure-webhooks:
+        condition: service_completed_successfully
+    restart: on-failure
+    volumes:
+      - ./scripts:/scripts
+      - ./data:/data/
+    environment:
+      MINIO_USER: admin
+      MINIO_PWD: superSecurePassword
+      RAW_BUCKET: raw-data
+      DATA_LOCATION: /data/
+    entrypoint: /scripts/upload-raw-data.sh
+
+volumes:
+  miniodata:
