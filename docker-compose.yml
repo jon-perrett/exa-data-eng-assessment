@@ -29,42 +29,6 @@ services:
       DATA_LOCATION: /data
     entrypoint: /scripts/create-buckets.sh
   
-  # transform-server receives MinIO webhooks and transforms the data
-  transform-server:
-    build:
-      context: ./transform_server
-    healthcheck:
-      test: ["CMD", "curl", "http://transform-server:8000/health"]
-      interval: 1s
-    environment:
-      TRANSFORMED_BUCKET: transformed-data
-      MINIO_ENDPOINT: minio:9000
-      MINIO_USER: admin
-      MINIO_PWD: superSecurePassword
-    ports:
-      - 8000:8000
-  
-  # configure-webhooks configures MinIO object notification webhooks
-  configure-webhooks:
-    image: minio/mc
-    depends_on:
-      minio:
-        condition: service_started
-      create-buckets:
-        condition: service_completed_successfully
-      transform-server:
-        condition: service_healthy
-    restart: on-failure
-    volumes:
-      - ./scripts:/scripts
-    environment:
-      MINIO_USER: admin
-      MINIO_PWD: superSecurePassword
-      RAW_BUCKET: raw-data
-      WEBHOOK_SERVER: transform-server:8000
-    entrypoint: /scripts/configure-webhooks.sh
-
-
   # upload-data is a service that creates buckets for our application
   upload-data:
     image: minio/mc
@@ -73,10 +37,10 @@ services:
         condition: service_started
       create-buckets:
         condition: service_completed_successfully
-      transform-server:
-        condition: service_healthy
-      configure-webhooks:
-        condition: service_completed_successfully
+      # transform-server:
+      #   condition: service_healthy
+      # configure-webhooks:
+      #   condition: service_completed_successfully
     restart: on-failure
     volumes:
       - ./scripts:/scripts
@@ -87,6 +51,45 @@ services:
       RAW_BUCKET: raw-data
       DATA_LOCATION: /data/
     entrypoint: /scripts/upload-raw-data.sh
+
+  spark-master:
+    build: ./spark
+    container_name: spark-master
+    environment:
+      - SPARK_MODE=master
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=superSecurePassword
+      - BRONZE_DATA_PATH=s3a://raw-data/
+      - ICEBERG_WAREHOUSE_PATH=s3a://transformed-data/
+      - SPARK_SCHEMA_PATH=/opt/spark/schemas/fhir.json
+    volumes:
+      - ./spark/schemas/:/opt/spark/schemas
+      - ./spark/jobs/:/opt/spark/jobs
+    ports:
+      - "8080:8080"     # Spark master web UI
+      - "7077:7077"     # Spark master port
+    depends_on:
+      - minio
+
+  spark-worker-1:
+    build: ./spark
+    container_name: spark-worker-1
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark-master
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=superSecurePassword
+    depends_on:
+      - spark-master
+      - minio
+  
+  nessie:
+    image: ghcr.io/projectnessie/nessie
+    container_name: nessie
+    ports:
+      - "19120:19120"
+    environment:
+      - QUARKUS_HTTP_PORT=19120
 
 volumes:
   miniodata:

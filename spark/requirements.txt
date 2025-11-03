@@ -1,0 +1,4 @@
+pyspark==3.5.7
+black==25.9.0
+isort>=7
+pytest

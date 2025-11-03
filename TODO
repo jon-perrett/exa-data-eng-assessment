@@ -3,3 +3,5 @@
 - add monitoring (maybe a little prometheus server or something)
 - add an example query layer
 - add some unit/integration tests
+- github actions / CI/CD things
+- better handling of MINIO creds in docker compose
