@@ -1,27 +1,14 @@
 import json
 import os
 
-from pyspark.sql import Column, DataFrame, SparkSession
+from common_spark import spark
+from pyspark.sql import Column, DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql.types import ArrayType, DataType, StructType
 
-RESOURCE_TYPES = [
-    "Patient",
-    "Encounter",
-    "CareTeam",
-    "CarePlan",
-    "DiagnosticReport",
-    "DocumentReference",
-    "Claim",
-    "ExplanationOfBenefit",
-    "Coverage",
-    "AllergyIntolerance",
-    "Condition",
-]
-
 minio_source_path = os.environ.get("BRONZE_DATA_PATH")
 warehouse_path = os.environ.get("ICEBERG_WAREHOUSE_PATH")  # TODO: what if not exist?
-table_namespace = "exa.silver"
+TABLE_NAMESPACE = "exa.silver"
 
 
 def load_schema(schema_path: str) -> StructType:
@@ -119,26 +106,7 @@ def get_struct_columns(col_name: str, col_type: DataType) -> list[Column]:
 
 
 if __name__ == "__main__":
-    spark = (
-        SparkSession.builder.appName("FHIR Silver Iceberg Writer")
-        .config("spark.sql.catalog.exa", "org.apache.iceberg.spark.SparkCatalog")
-        .config("spark.sql.catalog.exa.uri", "http://nessie:19120/api/v2")
-        .config("spark.sql.catalog.exa.ref", "main")
-        .config("spark.sql.catalog.exa.warehouse", warehouse_path)
-        .config("spark.sql.catalog.exa.type", "nessie")
-        .config("spark.sql.catalog.exa.authentication.type", "NONE")
-        .config("spark.hadoop.fs.s3a.endpoint", "http://minio:9000")
-        .config("spark.hadoop.fs.s3a.path.style.access", "true")
-        .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
-        .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
-        .config(
-            "spark.sql.extensions",
-            "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
-        )
-        .getOrCreate()
-    )
-
-    spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {table_namespace}")
+    spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {TABLE_NAMESPACE}")
 
     schema = load_schema(os.environ.get("SPARK_SCHEMA_PATH"))
     df = spark.read.option("multiLine", True).schema(schema).json(minio_source_path)
@@ -152,5 +120,5 @@ if __name__ == "__main__":
         .write.format("iceberg")
         .mode("append")
         .option("checkpointLocation", f"{warehouse_path}/checkpoints/resources")
-        .saveAsTable(f"{table_namespace}.resources")
+        .saveAsTable(f"{TABLE_NAMESPACE}.resources")
     )

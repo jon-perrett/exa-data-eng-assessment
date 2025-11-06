@@ -1,3 +1,7 @@
+x-minio-creds: &minio-creds
+  MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
+  MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-superSecurePassword}
+
 services:
   minio:
     image: minio/minio
@@ -6,13 +10,12 @@ services:
       - "9000:9000"
       - "9001:9001"
     environment:
-      MINIO_ROOT_USER: admin
-      MINIO_ROOT_PASSWORD: superSecurePassword
+      <<: *minio-creds
     volumes:
       - miniodata:/data
     command: server /data --console-address ":9001"
 
-  # create-buckets is a service that creates buckets for our application
+  # create-buckets is a script that creates buckets for our application
   create-buckets:
     image: minio/mc
     depends_on:
@@ -22,11 +25,9 @@ services:
       - ./scripts:/scripts
       - ./data:/data
     environment:
-      MINIO_USER: admin
-      MINIO_PWD: superSecurePassword
-      RAW_BUCKET: raw-data
-      TRANSFORMED_BUCKET: transformed-data
-      DATA_LOCATION: /data
+      <<: *minio-creds
+      RAW_BUCKET: ${RAW_BUCKET:-raw}
+      TRANSFORMED_BUCKET: ${TRANSFORMED_BUCKET:-transformed}
     entrypoint: /scripts/create-buckets.sh
   
   # upload-data is a service that creates buckets for our application
@@ -37,18 +38,13 @@ services:
         condition: service_started
       create-buckets:
         condition: service_completed_successfully
-      # transform-server:
-      #   condition: service_healthy
-      # configure-webhooks:
-      #   condition: service_completed_successfully
     restart: on-failure
     volumes:
       - ./scripts:/scripts
       - ./data:/data/
     environment:
-      MINIO_USER: admin
-      MINIO_PWD: superSecurePassword
-      RAW_BUCKET: raw-data
+      <<: *minio-creds
+      RAW_BUCKET: ${RAW_BUCKET:-raw}
       DATA_LOCATION: /data/
     entrypoint: /scripts/upload-raw-data.sh
 
@@ -57,17 +53,17 @@ services:
     container_name: spark-master
     environment:
       - SPARK_MODE=master
-      - AWS_ACCESS_KEY_ID=admin
-      - AWS_SECRET_ACCESS_KEY=superSecurePassword
-      - BRONZE_DATA_PATH=s3a://raw-data/
-      - ICEBERG_WAREHOUSE_PATH=s3a://transformed-data/
+      - AWS_ACCESS_KEY_ID=${MINIO_ROOT_USER:-admin}
+      - AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:-superSecurePassword}
+      - BRONZE_DATA_PATH=s3a://${RAW_BUCKET:-raw}/
+      - ICEBERG_WAREHOUSE_PATH=s3a://${TRANSFORMED_BUCKET:-transformed}/
       - SPARK_SCHEMA_PATH=/opt/spark/schemas/fhir.json
     volumes:
       - ./spark/schemas/:/opt/spark/schemas
       - ./spark/jobs/:/opt/spark/jobs
     ports:
-      - "8080:8080"     # Spark master web UI
-      - "7077:7077"     # Spark master port
+      - "8080:8080"
+      - "7077:7077"
     depends_on:
       - minio
 
@@ -77,8 +73,8 @@ services:
     environment:
       - SPARK_MODE=worker
       - SPARK_MASTER_URL=spark-master
-      - AWS_ACCESS_KEY_ID=admin
-      - AWS_SECRET_ACCESS_KEY=superSecurePassword
+      - AWS_ACCESS_KEY_ID=${MINIO_ROOT_USER:-admin}
+      - AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:-superSecurePassword}
     depends_on:
       - spark-master
       - minio

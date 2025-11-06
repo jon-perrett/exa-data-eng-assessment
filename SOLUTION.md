@@ -32,8 +32,18 @@ Apache Iceberg is an open table format build on top of Apache Parquet. It is ess
 
 Because Apache Parquet is built over Apache Parquet, it enables features which allow for efficient querying such as predicate and projection pushdown. Predicate pushdown works when data is appropriately partitioned by using the metadata to ensure that only the necessary parts of the data are read, this is supported natively by services such as Amazon Athena, where this can introduce significant cost savings (as it is charged by data retrieved). Projection pushdown is supported as columns can be selected directly from the Parquet file due to its columnar nature.
 
+Nessie is also deployed as an Apache Iceberg metadata store.
+
 ## Running the solution
+__note: the commands here assume it is being run on Linux with bash__
 ### Deploying the Stack
+Configure the application by copying the example .env file, and modifying as appropriate.
+```bash
+cp .env.example .env`
+source .env
+```
+
+Run up the docker-compose stack.
 `docker compose up [-d] [--build]`
 *Note*: the build for the Apache Spark docker image is a lengthy process. This is because the commonly used `bitnami/spark` has recently been moved behind a paywall, and so an image has been built from scratch for this. In reality, we would push this image to an image registry to save it being continuously rebuilt.
 
@@ -49,3 +59,9 @@ cd spark
 docker build -t exa-tests -f ./test/Dockerfile .
 docker run --rm exa-tests
 ```
+
+# Future Enhancements
+1. Partition the SILVER table to make GOLD queries more efficient.
+2. Update to Spark Structured Streaming so that the Apache Iceberg will continuously update.
+3. Demonstrate Apache Iceberg time-travel, compaction etc...
+4. Integration tests.
