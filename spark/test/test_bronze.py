@@ -3,7 +3,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from jobs.etl import get_complete_data_for_resource, get_struct_columns, load_schema
+from spark.jobs.bronze import get_complete_data_for_resource, get_struct_columns, load_schema
 from pyspark.sql import SparkSession
 from pyspark.sql.types import (
     ArrayType,

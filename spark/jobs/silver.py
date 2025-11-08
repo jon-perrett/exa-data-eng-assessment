@@ -1,30 +1,25 @@
-import json
 import os
-
-from common_spark import spark
 from pyspark.sql import Column, DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql.types import ArrayType, DataType, StructType
+from common_spark import spark
 
-minio_source_path = os.environ.get("BRONZE_DATA_PATH")
-warehouse_path = os.environ.get("ICEBERG_WAREHOUSE_PATH")  # TODO: what if not exist?
-TABLE_NAMESPACE = "exa.silver"
+RESOURCE_TYPES = [
+    "Patient",
+    "Encounter",
+    "CareTeam",
+    "CarePlan",
+    "DiagnosticReport",
+    "DocumentReference",
+    "Claim",
+    "ExplanationOfBenefit",
+    "Coverage",
+    "AllergyIntolerance",
+    "Condition",
+]
+warehouse_path = os.environ.get("ICEBERG_WAREHOUSE_PATH")
 
-
-def load_schema(schema_path: str) -> StructType:
-    """
-    Given a path to a schema, load the PySpark schema from a JSON file.
-
-    Params:
-        schema_path: path to the schema
-
-    Returns:
-        the schema object
-    """
-    with open(schema_path) as f:
-        schema_d = json.loads(f.read())
-    return StructType.fromJson(schema_d)
-
+SILVER_NAMESPACE = "exa.silver"
 
 def get_complete_data_for_resource(
     resource_df: DataFrame, resource_type: str
@@ -55,7 +50,7 @@ def explode_complex_fields(df_in: DataFrame) -> DataFrame:
 
     Aim to end up with exploded struct fields which contain either a single value, or an array of values.
     We don't do this recursively, as this becomes a very expensive operation and provides less value
-    for the "silver" dataset.
+    for the "bronze" dataset. "silver" datasets can do further flattening where appropriate.
 
     Params:
         df_in: input dataframe
@@ -103,22 +98,19 @@ def get_struct_columns(col_name: str, col_type: DataType) -> list[Column]:
         return [
             F.col(f"{col_name}.{f}").alias(f"{col_name}_{f}") for f in struct_fields
         ]
-
-
 if __name__ == "__main__":
-    spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {TABLE_NAMESPACE}")
+  spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {SILVER_NAMESPACE}").show()
+  df = spark.read.format("iceberg").load("exa.bronze.fhir")
 
-    schema = load_schema(os.environ.get("SPARK_SCHEMA_PATH"))
-    df = spark.read.option("multiLine", True).schema(schema).json(minio_source_path)
+  resource_df = df.select(F.explode("entry").alias("entry")).select(
+      "entry.resource.*"
+  )
 
-    resource_df = df.select(F.explode("entry").alias("entry")).select(
-        "entry.resource.*"
-    )
-
+  for resource_type in RESOURCE_TYPES:
     (
-        explode_complex_fields(resource_df)
-        .write.format("iceberg")
-        .mode("append")
-        .option("checkpointLocation", f"{warehouse_path}/checkpoints/resources")
-        .saveAsTable(f"{TABLE_NAMESPACE}.resources")
+      explode_complex_fields(resource_df.filter(f"resourceType = '{resource_type}'"))
+      .repartition(10, "patient_reference", "id")  # partition by common join keys
+      .write.format("iceberg").mode("append")
+      .option("checkpointLocation", f"{warehouse_path}/checkpoints/bronze/fhir")
+      .saveAsTable(f"{SILVER_NAMESPACE}.{resource_type.lower()}")
     )

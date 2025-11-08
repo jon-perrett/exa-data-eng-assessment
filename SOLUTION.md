@@ -2,13 +2,16 @@
 
 ## Summary
 Key concept is to use the "Medallion Architecture":
-1. Land raw data into MinIO (BRONZE)
-2. Produce large, partially flattened tables into Apache Iceberg. (SILVER)
-3. Produce analytics-ready datasets from the Apache Iceberg table. (GOLD)
+1. Land raw data into MinIO
+2. Produce large wide tables into Apache Iceberg. (BRONZE)
+3. Produce tables for common datasets (in this case resource types) (SILVER)
+3. Produce analytics-ready datasets. (GOLD)
 
-Producing a large flat table for the SILVER tier is an intentional decision due to the nature of Apache Iceberg. In a traditional RDBMS, it is best practice to normalise data to reduce data redundancy and allow for easier schema extension. Because Apache Iceberg supports schema evolution, and is a compressed Parquet format this requirement is no longer needed. Keeping data in a single wide table means that joins do not need to be conducted which are expensive operations.
 
-The GOLD tier contains example datasets to answer specific business questions by querying the SILVER tier. Because all of the data is in one location, we can register pre-configured "virtual" views of the data, without having to copy the data again. The query engine is able to work from the stored SQL relating to the view and query only the necessary data in the underlying Parquet files managed by Iceberg.
+
+The SILVER tier builds on the BRONZE tier and produces more usable tables. In this tier I have begun this process by flattening out the top level `ARRAY_TYPE` and `STRUCT_TYPE` fields, to make each field more easily addressable. By flattening this table we produce a very wide table. Producing a large flat table for this tier is an intentional decision due to the nature of Apache Iceberg. In a traditional RDBMS, it is best practice to normalise data to reduce data redundancy and allow for easier schema extension. Because Apache Iceberg supports schema evolution, and is a compressed Parquet format this requirement is no longer needed. Keeping data in a single wide table means that joins can be minimised in subsequent layers which are expensive operations.
+
+The GOLD tier contains example datasets to answer specific business questions by querying the SILVER tier. In this tier there is a design decision which needs to be made on a case-by-case basis. Either new tables can be created, at the cost of additional data storage but with potentially improved partitioning or these datasets can be created as views, referencing the existing underlying storage but potentially compromising on partitioning and therefore query performance. I have currently only implemented one GOLD dataset, which produces the top areas (country and city) by insurance claim value.
 
 ## Technology Choices
 This section discusses the technology choices made as part of this assessment.  
@@ -48,8 +51,18 @@ Run up the docker-compose stack.
 *Note*: the build for the Apache Spark docker image is a lengthy process. This is because the commonly used `bitnami/spark` has recently been moved behind a paywall, and so an image has been built from scratch for this. In reality, we would push this image to an image registry to save it being continuously rebuilt.
 
 ### Running the Spark Jobs
-We use the Spark master node to submit the job, as in the compose file we have mapped the `spark/jobs` directory into this container. This is easier than creating another container to submit the jobs from.  
-`docker exec -it spark-master /opt/spark/bin/spark-submit --master spark://spark-master:7077 /opt/spark/jobs/etl.py`
+We use the Spark master node to submit the jobs, as in the compose file we have mapped the `spark/jobs` directory into this container. This is easier than creating another container to submit the jobs from.  
+
+NOTE: the queries will fail if the Nessie instance is not fully healthy.
+
+To create the BRONZE tier:
+`docker exec -it spark-master /opt/spark/bin/spark-submit --master spark://spark-master:7077 /opt/spark/jobs/bronze.py`
+
+To create the SILVER tier:
+`docker exec -it spark-master /opt/spark/bin/spark-submit --master spark://spark-master:7077 /opt/spark/jobs/silver.py`
+
+To create the GOLD tier and see example results:
+`docker exec -it spark-master /opt/spark/bin/spark-submit --master spark://spark-master:7077 /opt/spark/jobs/gold.py`
 
 ### Running Unit Tests
 Because PySpark requires a JVM to run, a Dockerfile is provided in case your environment does not have Java installed. It is recommended to run the unit tests as below:  
