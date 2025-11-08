@@ -1,9 +1,11 @@
+"""Defines Spark jobs in the GOLD layer of the architecture"""
 from common_spark import spark
+
 GOLD_NAMESPACE = "exa.gold"
 if __name__ == "__main__":
-  spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {GOLD_NAMESPACE}")
-  spark.sql(
-    f"""
+    spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {GOLD_NAMESPACE}")
+    spark.sql(
+        f"""
     CREATE TABLE IF NOT EXISTS {GOLD_NAMESPACE}.top_locations_by_insurance_claims AS
     SELECT
       pz.address_country AS country,
@@ -21,10 +23,11 @@ if __name__ == "__main__":
       ON concat('urn:uuid:', pz.id) = b.patient_reference
     GROUP BY pz.address_country, pz.address_city
       """
-  ).show()
+    ).show()
 
-  spark.sql(
-    f"""SELECT * FROM {GOLD_NAMESPACE}.top_locations_by_insurance_claims 
+    spark.sql(
+        f"""SELECT * FROM {GOLD_NAMESPACE}.top_locations_by_insurance_claims 
     ORDER BY total_payments DESC
     LIMIT 10
-  """).show()
+  """
+    ).show()

@@ -1,7 +1,0 @@
-- handle object names with non-ascii characters (these are URI encoded)
-- parse the FHIR data and store (maybe Parquet?)
-- add monitoring (maybe a little prometheus server or something)
-- add an example query layer
-- add some unit/integration tests
-- github actions / CI/CD things
-- better handling of MINIO creds in docker compose

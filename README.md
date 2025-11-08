@@ -1,4 +1,7 @@
 # Data Engineer - Technical Assesment
+
+**FOR A DESCRIPTION OF MY SOLUTION PLEASE REFER TO [SOLUTION.md](./SOLUTION.md)**
+
 Our tech teams are curious, driven, intelligent, pragmatic, collaborative and open-minded and you should be too. 
 
 ## Testing Goals

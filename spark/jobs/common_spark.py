@@ -1,8 +1,9 @@
+"""Defines common spark environment, configured to use Apache Iceberg."""
 import os
 
 from pyspark.sql import SparkSession
 
-warehouse_path = os.environ.get("ICEBERG_WAREHOUSE_PATH")  # TODO: what if not exist?
+warehouse_path = os.environ.get("ICEBERG_WAREHOUSE_PATH")
 spark = (
     SparkSession.builder.appName("FHIR Reader")
     .config("spark.sql.catalog.exa", "org.apache.iceberg.spark.SparkCatalog")

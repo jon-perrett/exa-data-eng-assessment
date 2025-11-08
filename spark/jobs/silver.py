@@ -1,8 +1,9 @@
+"""Defines Spark jobs in the SILVER layer of the architecture"""
 import os
+
 from pyspark.sql import Column, DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql.types import ArrayType, DataType, StructType
-from common_spark import spark
 
 RESOURCE_TYPES = [
     "Patient",
@@ -21,20 +22,21 @@ warehouse_path = os.environ.get("ICEBERG_WAREHOUSE_PATH")
 
 SILVER_NAMESPACE = "exa.silver"
 
+
 def get_complete_data_for_resource(
-    resource_df: DataFrame, resource_type: str
+    df: DataFrame, resource_type: str
 ) -> DataFrame:
     """
     Return the data for a particular resource type.
 
     Params:
-        resource_df: dataframe containing only resources
+        df: dataframe containing only resources
         resource_type: the name of the resource type to extract
 
     Returns:
         dataframe containing only resources of the specified type
     """
-    df = resource_df.filter(f"resourceType = '{resource_type}'")
+    df = df.filter(f"resourceType = '{resource_type}'")
     # Compute non-null counts for all columns
     # Doing .collect() isn't the most efficient, but it's ok for this small dataset
     non_null_counts = (
@@ -48,9 +50,8 @@ def explode_complex_fields(df_in: DataFrame) -> DataFrame:
     """
     Our dataset contains a number of "complex" fields, i.e. ArrayType[StructType] and StructType.
 
-    Aim to end up with exploded struct fields which contain either a single value, or an array of values.
-    We don't do this recursively, as this becomes a very expensive operation and provides less value
-    for the "bronze" dataset. "silver" datasets can do further flattening where appropriate.
+    Aim to end up with exploded struct fields which contain either a single value, or an array
+    of values. We don't do this recursively, as this becomes a very expensive operation.
 
     Params:
         df_in: input dataframe
@@ -93,24 +94,32 @@ def get_struct_columns(col_name: str, col_type: DataType) -> list[Column]:
             F.expr(f"transform({col_name}, x -> x.{f})").alias(f"{col_name}_{f}")
             for f in struct_fields
         ]
-    else:
-        struct_fields = col_type.names
-        return [
-            F.col(f"{col_name}.{f}").alias(f"{col_name}_{f}") for f in struct_fields
-        ]
+    struct_fields = col_type.names
+    return [
+        F.col(f"{col_name}.{f}").alias(f"{col_name}_{f}") for f in struct_fields
+    ]
+
+
 if __name__ == "__main__":
-  spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {SILVER_NAMESPACE}").show()
-  df = spark.read.format("iceberg").load("exa.bronze.fhir")
+    # generally considered bad practice, but common_spark provides Iceberg specific JARs,
+    # so importing it here means tests are more portable.
+    from common_spark import spark
 
-  resource_df = df.select(F.explode("entry").alias("entry")).select(
-      "entry.resource.*"
-  )
+    spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {SILVER_NAMESPACE}").show()
+    df = spark.read.format("iceberg").load("exa.bronze.fhir")
 
-  for resource_type in RESOURCE_TYPES:
-    (
-      explode_complex_fields(resource_df.filter(f"resourceType = '{resource_type}'"))
-      .repartition(10, "patient_reference", "id")  # partition by common join keys
-      .write.format("iceberg").mode("append")
-      .option("checkpointLocation", f"{warehouse_path}/checkpoints/bronze/fhir")
-      .saveAsTable(f"{SILVER_NAMESPACE}.{resource_type.lower()}")
+    resource_df = df.select(F.explode("entry").alias("entry")).select(
+        "entry.resource.*"
     )
+
+    for resource_type in RESOURCE_TYPES:
+        (
+            explode_complex_fields(
+                resource_df.filter(f"resourceType = '{resource_type}'")
+            )
+            .repartition(10, "patient_reference", "id")  # partition by common join keys
+            .write.format("iceberg")
+            .mode("append")
+            .option("checkpointLocation", f"{warehouse_path}/checkpoints/bronze/fhir")
+            .saveAsTable(f"{SILVER_NAMESPACE}.{resource_type.lower()}")
+        )
